@@ -9,17 +9,23 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: "gpt-4.1-mini",
         messages: [
-          { role: "user", content: "Why did email open rate drop?" }
+          { role: "user", content: req.body.prompt }
         ]
       })
     });
 
     const data = await response.json();
 
-    return res.status(200).json(data);
+    const answer = data?.choices?.[0]?.message?.content;
+
+    return res.status(200).json({
+      success: true,
+      answer: answer
+    });
 
   } catch (err) {
     return res.status(500).json({
+      success: false,
       error: err.message
     });
   }
