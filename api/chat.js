@@ -1,18 +1,6 @@
 export default async function handler(req, res) {
 
-    // =========================
-    // CORS (OPTIONAL BUT SAFE)
-    // =========================
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-    // Handle preflight request
-    if (req.method === "OPTIONS") {
-        return res.status(200).end();
-    }
-
-    // Only allow POST
+    // Allow only POST
     if (req.method !== "POST") {
         return res.status(405).json({ error: "POST only" });
     }
@@ -22,7 +10,7 @@ export default async function handler(req, res) {
         const { prompt } = req.body;
 
         // =========================
-        // OPENAI CALL
+        // CALL OPENAI
         // =========================
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
@@ -35,7 +23,22 @@ export default async function handler(req, res) {
                 messages: [
                     {
                         role: "system",
-                        content: "Return ONLY valid JSON. No markdown. No backticks. No explanation. Output must be a clean JSON object with keys: summary, issue, recommendation, performance, analysis, riskLevel, score."
+                        content: `
+You are a data analyst.
+
+Return ONLY valid JSON. No markdown. No explanations.
+
+Schema:
+{
+  "summary": "",
+  "issue": "",
+  "recommendation": "",
+  "performance": "High | Avg | Risk",
+  "analysis": "",
+  "riskLevel": "Low | Medium | High",
+  "score": number
+}
+                        `
                     },
                     {
                         role: "user",
@@ -49,26 +52,50 @@ export default async function handler(req, res) {
         const data = await response.json();
 
         // =========================
-        // EXTRACT AI RESPONSE
+        // EXTRACT CONTENT
         // =========================
         let content = data.choices?.[0]?.message?.content || "";
 
-        // CLEAN ANY MARKDOWN JUST IN CASE
+        // CLEAN (just in case model adds formatting)
         content = content
             .replace(/```json/gi, "")
             .replace(/```/g, "")
             .trim();
 
         // =========================
-        // RETURN CLEAN OUTPUT TO SFMC
+        // PARSE JSON SAFELY
         // =========================
-        return res.status(200).json({
-            answer: content
-        });
+        let parsed;
+
+        try {
+            parsed = JSON.parse(content);
+        } catch (e) {
+            // fallback safety
+            parsed = {
+                summary: "Parse Error",
+                issue: "Invalid JSON from model",
+                recommendation: "Fix prompt or model output",
+                performance: "Avg",
+                analysis: content,
+                riskLevel: "Medium",
+                score: 50
+            };
+        }
+
+        // =========================
+        // FINAL RESPONSE (IMPORTANT)
+        // =========================
+        return res.status(200).json(parsed);
 
     } catch (err) {
         return res.status(500).json({
-            error: err.message
+            summary: "API Error",
+            issue: err.message,
+            recommendation: "Check Vercel logs",
+            performance: "Risk",
+            analysis: "",
+            riskLevel: "High",
+            score: 0
         });
     }
 }
