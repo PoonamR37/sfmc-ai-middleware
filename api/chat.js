@@ -10,7 +10,7 @@ export default async function handler(req, res) {
         const { prompt } = req.body;
 
         // =========================
-        // CALL OPENAI
+        // OPENAI CALL
         // =========================
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
@@ -20,43 +20,63 @@ export default async function handler(req, res) {
             },
             body: JSON.stringify({
                 model: "gpt-4.1-mini",
+                temperature: 0.2, // 🔥 improves consistency
                 messages: [
                     {
                         role: "system",
                         content: `
-You are a data analyst.
+You are a strict email performance analytics engine.
 
 Return ONLY valid JSON. No markdown. No explanations.
+
+You MUST follow these rules exactly:
 
 Schema:
 {
   "summary": "",
   "issue": "",
   "recommendation": "",
-  "performance": "High | Avg | Risk",
+  "performance": "High | Avg | Low",
   "analysis": "",
   "riskLevel": "Low | Medium | High",
   "score": number
 }
-                        `
+
+STRICT RULES:
+
+1. performance MUST be ONLY:
+   "High", "Avg", or "Low"
+   ❌ NEVER: "Risk", "Good", "Bad", etc.
+
+2. riskLevel MUST be ONLY:
+   "Low", "Medium", "High"
+
+3. score MUST be a number between 0–100
+
+SCORING LOGIC:
+- 80–100 → High performance, Low risk
+- 50–79 → Avg performance, Medium risk
+- 0–49 → Low performance, High risk
+
+If uncertain, choose closest valid category — NEVER free text.
+`
                     },
                     {
                         role: "user",
                         content: prompt
                     }
-                ],
-                temperature: 0.3
+                ]
             })
         });
 
         const data = await response.json();
 
         // =========================
-        // EXTRACT CONTENT
+        // EXTRACT RESPONSE
         // =========================
         let content = data.choices?.[0]?.message?.content || "";
 
-        // CLEAN (just in case model adds formatting)
+        // Clean formatting just in case
         content = content
             .replace(/```json/gi, "")
             .replace(/```/g, "")
@@ -70,11 +90,10 @@ Schema:
         try {
             parsed = JSON.parse(content);
         } catch (e) {
-            // fallback safety
             parsed = {
                 summary: "Parse Error",
                 issue: "Invalid JSON from model",
-                recommendation: "Fix prompt or model output",
+                recommendation: "Check prompt or model response",
                 performance: "Avg",
                 analysis: content,
                 riskLevel: "Medium",
@@ -83,19 +102,21 @@ Schema:
         }
 
         // =========================
-        // FINAL RESPONSE (IMPORTANT)
+        // FINAL RESPONSE
         // =========================
         return res.status(200).json(parsed);
 
     } catch (err) {
+
         return res.status(500).json({
             summary: "API Error",
             issue: err.message,
             recommendation: "Check Vercel logs",
-            performance: "Risk",
+            performance: "Low",
             analysis: "",
             riskLevel: "High",
             score: 0
         });
+
     }
 }
