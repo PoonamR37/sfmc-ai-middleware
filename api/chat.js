@@ -1,4 +1,3 @@
-
 export default async function handler(req, res) {
 
     // =========================
@@ -12,13 +11,12 @@ export default async function handler(req, res) {
 
     try {
 
+        // =========================
+        // VALIDATE INPUT
+        // =========================
         const { prompt } = req.body;
 
-        // =========================
-        // VALIDATE PROMPT
-        // =========================
         if (!prompt || typeof prompt !== "string") {
-
             return res.status(400).json({
                 error: "Invalid prompt"
             });
@@ -34,18 +32,15 @@ export default async function handler(req, res) {
 
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization":
-                        `Bearer ${process.env.OPENAI_API_KEY}`
+                    "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
                 },
 
                 body: JSON.stringify({
-
                     model: "gpt-4.1-mini",
 
                     temperature: 0.2,
 
                     messages: [
-
                         {
                             role: "system",
 
@@ -53,8 +48,6 @@ export default async function handler(req, res) {
 You are a strict email performance analytics engine.
 
 Return ONLY valid JSON. No markdown. No explanations.
-
-You MUST follow these rules exactly:
 
 Schema:
 {
@@ -66,21 +59,6 @@ Schema:
   "riskLevel": "Low | Medium | High",
   "score": number
 }
-
-STRICT RULES:
-
-1. performance MUST be ONLY:
-   "High", "Avg", or "Low"
-
-2. riskLevel MUST be ONLY:
-   "Low", "Medium", "High"
-
-3. score MUST be a number between 0–100
-
-SCORING LOGIC:
-- 80–100 → High performance, Low risk
-- 50–79 → Avg performance, Medium risk
-- 0–49 → Low performance, High risk
 `
                         },
 
@@ -94,38 +72,30 @@ SCORING LOGIC:
         );
 
         // =========================
-        // OPENAI RESPONSE
+        // HANDLE OPENAI FAILURES
         // =========================
-        const data = await response.json();
+        if (!response.ok) {
 
-        console.log(
-            "OPENAI RAW RESPONSE:",
-            JSON.stringify(data)
-        );
+            const errText = await response.text();
 
-        // =========================
-        // VALIDATE RESPONSE
-        // =========================
-        if (
-            !data ||
-            !data.choices ||
-            !data.choices[0] ||
-            !data.choices[0].message
-        ) {
-
-            return res.status(500).send(
-                JSON.stringify({
-                    error: "Invalid OpenAI response",
-                    raw: data
-                })
-            );
+            return res.status(500).json({
+                summary: "OpenAI Error",
+                issue: errText,
+                recommendation: "Check OpenAI response",
+                performance: "Low",
+                analysis: "",
+                riskLevel: "High",
+                score: 0
+            });
         }
 
         // =========================
-        // EXTRACT CONTENT
+        // PARSE OPENAI RESPONSE
         // =========================
+        const data = await response.json();
+
         let content =
-            data.choices[0].message.content || "";
+            data?.choices?.[0]?.message?.content || "";
 
         content = content
             .replace(/```json/gi, "")
@@ -133,7 +103,7 @@ SCORING LOGIC:
             .trim();
 
         // =========================
-        // SAFE PARSE
+        // SAFE JSON PARSE
         // =========================
         let parsed;
 
@@ -145,9 +115,8 @@ SCORING LOGIC:
 
             parsed = {
                 summary: "Parse Error",
-                issue: "Invalid JSON from model",
-                recommendation:
-                    "Check prompt or model response",
+                issue: "Invalid JSON returned",
+                recommendation: "Fix AI formatting",
                 performance: "Avg",
                 analysis: content,
                 riskLevel: "Medium",
@@ -156,27 +125,20 @@ SCORING LOGIC:
         }
 
         // =========================
-        // RETURN STRINGIFIED JSON
+        // SUCCESS
         // =========================
-        return res
-            .status(200)
-            .send(JSON.stringify(parsed));
+        return res.status(200).json(parsed);
 
     } catch (err) {
 
-        return res
-            .status(500)
-            .send(
-                JSON.stringify({
-                    summary: "API Error",
-                    issue: err.message,
-                    recommendation: "Check Vercel logs",
-                    performance: "Low",
-                    analysis: "",
-                    riskLevel: "High",
-                    score: 0
-                })
-            );
+        return res.status(500).json({
+            summary: "API Error",
+            issue: err.message,
+            recommendation: "Check Vercel logs",
+            performance: "Low",
+            analysis: "",
+            riskLevel: "High",
+            score: 0
+        });
     }
 }
-
