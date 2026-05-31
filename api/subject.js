@@ -1,4 +1,4 @@
-````javascript id="ohz13t"
+
 export default async function handler(req, res) {
 
     // =========================
@@ -167,4 +167,3 @@ Rules:
             );
     }
 }
-````
