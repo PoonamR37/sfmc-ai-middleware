@@ -14,15 +14,6 @@ export default async function handler(req, res) {
         // =========================
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
 
-if (!response.ok) {
-    const errorText = await response.text();
-
-    return res.status(500).json({
-        error: "OpenAI API failed",
-        details: errorText
-    });
-}
-
 const data = await response.json();
             method: "POST",
             headers: {
