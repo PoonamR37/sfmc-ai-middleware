@@ -32,10 +32,17 @@ export default async function handler(req, res) {
 
         const data = await response.json();
 
-        return res.status(200).json({
-            raw:
-                data?.choices?.[0]?.message?.content || ""
-        });
+        let content =
+    data?.choices?.[0]?.message?.content || "";
+
+content = content
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+
+return res.status(200).json({
+    raw: content
+});
 
     } catch(err) {
 
