@@ -31,7 +31,7 @@ ${JSON.stringify(body.metrics || {}, null, 2)}`
         }
 
         // =========================
-        // TIMEOUT PROTECTION (CRITICAL FOR SFMC)
+        // TIMEOUT PROTECTION
         // =========================
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 25000);
@@ -56,14 +56,15 @@ ${JSON.stringify(body.metrics || {}, null, 2)}`
                         {
                             role: "system",
                             content: `
-You are a strict email performance analytics engine.
+You are a strict JSON generator.
 
-RULES:
-- Output MUST be valid JSON
+ABSOLUTE RULES:
+- Output ONLY valid JSON
 - No markdown
-- No backticks
-- No explanations
+- No explanation
 - No extra text
+- No code fences
+- Output must start with { and end with }
 - If unsure, still output valid JSON
 
 Schema:
