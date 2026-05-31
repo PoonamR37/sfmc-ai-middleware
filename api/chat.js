@@ -1,72 +1,37 @@
 export default async function handler(req, res) {
 
     // =========================
-    // POST ONLY
+    // ALLOW ONLY POST
     // =========================
     if (req.method !== "POST") {
-
         return res.status(405).json({
             error: "POST only"
         });
-
     }
 
     try {
 
         // =========================
-        // ACCEPT BOTH FORMATS
+        // NORMALIZE INPUT (SFMC + Prompt support)
         // =========================
-        const {
-            prompt,
-            emailContent,
-            metrics
-        } = req.body || {};
+        const body = req.body || {};
 
-        let finalPrompt = "";
-
-        // OLD FORMAT SUPPORT
-        if (prompt) {
-
-            finalPrompt = prompt;
-
-        }
-
-        // NEW FORMAT SUPPORT
-        else if (emailContent || metrics) {
-
-            finalPrompt =
-`
-Analyze this email campaign.
+        const prompt =
+            body.prompt ||
+            (body.emailContent
+                ? `Analyze this email performance:
 
 Email Content:
-${emailContent || ""}
+${body.emailContent}
 
 Metrics:
-${JSON.stringify(metrics || {})}
+${JSON.stringify(body.metrics || {}, null, 2)}`
+                : null);
 
-Return ONLY valid JSON.
-
-Schema:
-{
-  "summary": "",
-  "issue": "",
-  "recommendation": "",
-  "performance": "High | Avg | Low",
-  "analysis": "",
-  "riskLevel": "Low | Medium | High",
-  "score": number
-}
-`;
-
-        }
-
-        // INVALID INPUT
-        else {
-
+        if (!prompt || typeof prompt !== "string") {
             return res.status(400).json({
-                error: "Invalid payload"
+                error: "Invalid prompt"
             });
-
         }
 
         // =========================
@@ -79,26 +44,22 @@ Schema:
 
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization":
-                        `Bearer ${process.env.OPENAI_API_KEY}`
+                    "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
                 },
 
                 body: JSON.stringify({
-
                     model: "gpt-4.1-mini",
 
                     temperature: 0.2,
 
                     messages: [
-
                         {
                             role: "system",
 
-                            content:
-`
-You are a strict email analytics engine.
+                            content: `
+You are a strict email performance analytics engine.
 
-Return ONLY valid JSON.
+Return ONLY valid JSON. No markdown. No explanations.
 
 Schema:
 {
@@ -115,7 +76,7 @@ Schema:
 
                         {
                             role: "user",
-                            content: finalPrompt
+                            content: prompt
                         }
                     ]
                 })
@@ -123,45 +84,31 @@ Schema:
         );
 
         // =========================
-        // OPENAI ERROR
+        // HANDLE OPENAI FAILURES
         // =========================
         if (!response.ok) {
 
-            const errText =
-                await response.text();
+            const errText = await response.text();
 
             return res.status(500).json({
-
                 summary: "OpenAI Error",
-
                 issue: errText,
-
-                recommendation:
-                    "Check OpenAI response",
-
+                recommendation: "Check OpenAI response",
                 performance: "Low",
-
                 analysis: "",
-
                 riskLevel: "High",
-
                 score: 0
             });
-
         }
 
         // =========================
-        // GET CONTENT
+        // PARSE OPENAI RESPONSE
         // =========================
-        const data =
-            await response.json();
+        const data = await response.json();
 
         let content =
             data?.choices?.[0]?.message?.content || "";
 
-        // =========================
-        // REMOVE MARKDOWN
-        // =========================
         content = content
             .replace(/```json/gi, "")
             .replace(/```/g, "")
@@ -173,30 +120,17 @@ Schema:
         let parsed;
 
         try {
-
             parsed = JSON.parse(content);
-
-        } catch(e) {
-
+        } catch (e) {
             parsed = {
-
                 summary: "Parse Error",
-
-                issue:
-                    "Invalid JSON returned",
-
-                recommendation:
-                    "Fix AI formatting",
-
+                issue: "Invalid JSON returned",
+                recommendation: "Fix AI formatting",
                 performance: "Avg",
-
                 analysis: content,
-
                 riskLevel: "Medium",
-
                 score: 50
             };
-
         }
 
         // =========================
@@ -204,25 +138,16 @@ Schema:
         // =========================
         return res.status(200).json(parsed);
 
-    } catch(err) {
+    } catch (err) {
 
         return res.status(500).json({
-
             summary: "API Error",
-
             issue: err.message,
-
-            recommendation:
-                "Check Vercel logs",
-
+            recommendation: "Check Vercel logs",
             performance: "Low",
-
             analysis: "",
-
             riskLevel: "High",
-
             score: 0
         });
-
     }
 }
