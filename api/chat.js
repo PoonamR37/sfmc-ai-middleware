@@ -12,9 +12,21 @@ export default async function handler(req, res) {
     try {
 
         // =========================
-        // VALIDATE INPUT
+        // NORMALIZE INPUT (SFMC + Prompt support)
         // =========================
-        const { prompt } = req.body;
+        const body = req.body || {};
+
+        const prompt =
+            body.prompt ||
+            (body.emailContent
+                ? `Analyze this email performance:
+
+Email Content:
+${body.emailContent}
+
+Metrics:
+${JSON.stringify(body.metrics || {}, null, 2)}`
+                : null);
 
         if (!prompt || typeof prompt !== "string") {
             return res.status(400).json({
@@ -108,11 +120,8 @@ Schema:
         let parsed;
 
         try {
-
             parsed = JSON.parse(content);
-
         } catch (e) {
-
             parsed = {
                 summary: "Parse Error",
                 issue: "Invalid JSON returned",
