@@ -1,11 +1,9 @@
-
 export default async function handler(req, res) {
 
     // =========================
-    // ALLOW ONLY POST
+    // POST ONLY
     // =========================
     if (req.method !== "POST") {
-
         return res.status(405).json({
             error: "POST only"
         });
@@ -13,50 +11,43 @@ export default async function handler(req, res) {
 
     try {
 
+        // =========================
+        // VALIDATE INPUT
+        // =========================
         const { prompt } = req.body;
 
-        // =========================
-        // VALIDATE PROMPT
-        // =========================
         if (!prompt || typeof prompt !== "string") {
-
             return res.status(400).json({
                 error: "Invalid prompt"
             });
         }
 
         // =========================
-        // OPENAI CALL
+        // OPENAI REQUEST
         // =========================
         const response = await fetch(
             "https://api.openai.com/v1/chat/completions",
             {
-
                 method: "POST",
 
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization":
-                        `Bearer ${process.env.OPENAI_API_KEY}`
+                    "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
                 },
 
                 body: JSON.stringify({
-
                     model: "gpt-4.1-mini",
 
                     temperature: 0.4,
 
                     messages: [
-
                         {
                             role: "system",
 
                             content: `
 You are a senior email marketing copy optimizer.
 
-Your job is to improve subject lines to increase open rates.
-
-Return ONLY valid JSON. No markdown.
+Return ONLY valid JSON.
 
 Schema:
 {
@@ -68,14 +59,6 @@ Schema:
   "expectedImpact": "High | Medium | Low",
   "scoreBoostEstimate": number
 }
-
-Rules:
-- Generate 3 improved subject lines
-- Keep them under 60 characters
-- Must increase curiosity, urgency, or relevance
-- No spammy words
-- Personalization allowed
-- Score boost = estimated open rate improvement (0–30)
 `
                         },
 
@@ -89,38 +72,30 @@ Rules:
         );
 
         // =========================
-        // OPENAI RESPONSE
+        // HANDLE FAILURES
         // =========================
-        const data = await response.json();
+        if (!response.ok) {
 
-        console.log(
-            "OPENAI RAW RESPONSE:",
-            JSON.stringify(data)
-        );
+            const errText = await response.text();
 
-        // =========================
-        // VALIDATE RESPONSE
-        // =========================
-        if (
-            !data ||
-            !data.choices ||
-            !data.choices[0] ||
-            !data.choices[0].message
-        ) {
-
-            return res.status(500).send(
-                JSON.stringify({
-                    error: "Invalid OpenAI response",
-                    raw: data
-                })
-            );
+            return res.status(500).json({
+                currentAnalysis: "API Error",
+                issues: errText,
+                improvedSubjectLines: [],
+                recommendedSubject: "",
+                reason: "OpenAI request failed",
+                expectedImpact: "Low",
+                scoreBoostEstimate: 0
+            });
         }
 
         // =========================
-        // EXTRACT CONTENT
+        // PARSE RESPONSE
         // =========================
+        const data = await response.json();
+
         let content =
-            data.choices[0].message.content || "";
+            data?.choices?.[0]?.message?.content || "";
 
         content = content
             .replace(/```json/gi, "")
@@ -140,7 +115,7 @@ Rules:
 
             parsed = {
                 currentAnalysis: "Parse error",
-                issues: "Invalid model output",
+                issues: "Invalid JSON output",
                 improvedSubjectLines: [],
                 recommendedSubject: "",
                 reason: content,
@@ -150,20 +125,20 @@ Rules:
         }
 
         // =========================
-        // RETURN STRINGIFIED JSON
+        // SUCCESS
         // =========================
-        return res
-            .status(200)
-            .send(JSON.stringify(parsed));
+        return res.status(200).json(parsed);
 
     } catch (err) {
 
-        return res
-            .status(500)
-            .send(
-                JSON.stringify({
-                    error: err.message
-                })
-            );
+        return res.status(500).json({
+            currentAnalysis: "Server Error",
+            issues: err.message,
+            improvedSubjectLines: [],
+            recommendedSubject: "",
+            reason: "",
+            expectedImpact: "Low",
+            scoreBoostEstimate: 0
+        });
     }
 }
