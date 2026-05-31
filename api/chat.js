@@ -8,6 +8,12 @@ export default async function handler(req, res) {
     try {
 
         const { prompt } = req.body;
+        
+        if (!prompt || typeof prompt !== "string") {
+    return res.status(400).json({
+        error: "Invalid prompt"
+    });
+}
 
         // =========================
         // OPENAI CALL
