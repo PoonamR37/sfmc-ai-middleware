@@ -1,7 +1,7 @@
 export default async function handler(req, res) {
 
     // =========================
-    // ALLOW ONLY POST
+    // POST ONLY
     // =========================
     if (req.method !== "POST") {
         return res.status(405).json({ error: "POST only" });
@@ -10,31 +10,46 @@ export default async function handler(req, res) {
     try {
 
         // =========================
-        // INPUT NORMALIZATION
+        // INPUT
         // =========================
-        const body = req.body || {};
+        const { prompt, emailContent, metrics } = req.body || {};
 
-        const prompt =
-            body.prompt ||
-            (body.emailContent
-                ? `Analyze this email performance:
+        let finalPrompt = "";
+
+        if (prompt) {
+
+            finalPrompt = prompt;
+
+        } else if (emailContent || metrics) {
+
+            finalPrompt = `
+Analyze this email campaign.
 
 Email Content:
-${body.emailContent}
+${emailContent || ""}
 
 Metrics:
-${JSON.stringify(body.metrics || {}, null, 2)}`
-                : null);
+${JSON.stringify(metrics || {}, null, 2)}
 
-        if (!prompt || typeof prompt !== "string") {
-            return res.status(400).json({ error: "Invalid prompt" });
+Return ONLY valid JSON.
+
+Schema:
+{
+  "summary": "",
+  "issue": "",
+  "recommendation": "",
+  "performance": "High | Avg | Low",
+  "analysis": "",
+  "riskLevel": "Low | Medium | High",
+  "score": number
+}
+`;
+
+        } else {
+
+            return res.status(400).json({ error: "Invalid payload" });
+
         }
-
-        // =========================
-        // TIMEOUT PROTECTION
-        // =========================
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 25000);
 
         // =========================
         // OPENAI CALL
@@ -43,7 +58,6 @@ ${JSON.stringify(body.metrics || {}, null, 2)}`
             "https://api.openai.com/v1/chat/completions",
             {
                 method: "POST",
-                signal: controller.signal,
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
@@ -51,21 +65,13 @@ ${JSON.stringify(body.metrics || {}, null, 2)}`
                 body: JSON.stringify({
                     model: "gpt-4.1-mini",
                     temperature: 0.2,
-
                     messages: [
                         {
                             role: "system",
                             content: `
-You are a strict JSON generator.
+You are a strict email analytics engine.
 
-ABSOLUTE RULES:
-- Output ONLY valid JSON
-- No markdown
-- No explanation
-- No extra text
-- No code fences
-- Output must start with { and end with }
-- If unsure, still output valid JSON
+Return ONLY valid JSON. No markdown. No code fences.
 
 Schema:
 {
@@ -81,54 +87,41 @@ Schema:
                         },
                         {
                             role: "user",
-                            content: prompt
+                            content: finalPrompt
                         }
                     ]
                 })
             }
         );
 
-        clearTimeout(timeout);
-
         // =========================
-        // HANDLE OPENAI ERRORS
+        // OPENAI ERROR HANDLING
         // =========================
         if (!response.ok) {
 
             const errText = await response.text();
 
-            console.error("OPENAI ERROR:", errText);
-
             return res.status(500).json({
                 summary: "OpenAI Error",
-                issue: errText?.slice(0, 500),
-                recommendation: "Check OpenAI API key, quota, or model availability",
+                issue: errText,
+                recommendation: "Check OpenAI logs",
                 performance: "Low",
+                analysis: "",
                 riskLevel: "High",
                 score: 0
             });
+
         }
 
         // =========================
-        // PARSE OPENAI RESPONSE
+        // RAW RESPONSE
         // =========================
         const data = await response.json();
 
         let content = data?.choices?.[0]?.message?.content || "";
 
-        if (!content || typeof content !== "string") {
-            return res.status(500).json({
-                summary: "Empty Response",
-                issue: "OpenAI returned empty content",
-                recommendation: "Check model behavior or prompt",
-                performance: "Low",
-                riskLevel: "High",
-                score: 0
-            });
-        }
-
         // =========================
-        // CLEAN RESPONSE
+        // CLEAN OUTPUT
         // =========================
         content = content
             .replace(/```json/gi, "")
@@ -136,59 +129,55 @@ Schema:
             .trim();
 
         // =========================
-        // SAFE JSON EXTRACTION
-        // =========================
-        const firstBrace = content.indexOf("{");
-        const lastBrace = content.lastIndexOf("}");
-
-        if (firstBrace === -1 || lastBrace === -1) {
-            return res.status(500).json({
-                summary: "Invalid Model Output",
-                issue: "No JSON object detected in response",
-                recommendation: "Fix prompt or model formatting",
-                performance: "Low",
-                riskLevel: "High",
-                score: 0
-            });
-        }
-
-        const cleanJson = content.substring(firstBrace, lastBrace + 1);
-
-        // =========================
-        // SAFE PARSE
+        // SAFE PARSE (HARDENED)
         // =========================
         let parsed;
 
         try {
-            parsed = JSON.parse(cleanJson);
+
+            parsed = JSON.parse(content);
+
         } catch (e) {
+
+            // 🔥 fallback extraction (prevents total failure)
             parsed = {
                 summary: "Parse Error",
-                issue: "Invalid JSON structure returned by model",
-                recommendation: "Improve prompt strictness",
+                issue: "AI returned invalid JSON",
+                recommendation: "Check model output formatting",
                 performance: "Avg",
                 analysis: content,
                 riskLevel: "Medium",
                 score: 50
             };
+
         }
 
         // =========================
-        // SUCCESS RESPONSE
+        // FINAL GUARANTEE (IMPORTANT)
         // =========================
-        return res.status(200).json(parsed);
+        return res.status(200).json({
+
+            summary: parsed.summary || "",
+            issue: parsed.issue || "",
+            recommendation: parsed.recommendation || "",
+            performance: parsed.performance || "Avg",
+            analysis: parsed.analysis || "",
+            riskLevel: parsed.riskLevel || "Medium",
+            score: Number(parsed.score || 0)
+
+        });
 
     } catch (err) {
 
-        console.error("FATAL API ERROR:", err);
-
         return res.status(500).json({
-            summary: "API Crash",
+            summary: "API Error",
             issue: err.message,
-            recommendation: "Check Vercel logs",
+            recommendation: "Check server logs",
             performance: "Low",
+            analysis: "",
             riskLevel: "High",
             score: 0
         });
+
     }
 }
