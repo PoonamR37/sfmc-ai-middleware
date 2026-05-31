@@ -4,9 +4,7 @@ export default async function handler(req, res) {
     // POST ONLY
     // =========================
     if (req.method !== "POST") {
-        return res.status(405).json({
-            error: "POST only"
-        });
+        return res.status(405).json({ error: "POST only" });
     }
 
     try {
@@ -23,13 +21,19 @@ export default async function handler(req, res) {
         }
 
         // =========================
+        // TIMEOUT PROTECTION (CRITICAL FOR SFMC)
+        // =========================
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 25000);
+
+        // =========================
         // OPENAI REQUEST
         // =========================
         const response = await fetch(
             "https://api.openai.com/v1/chat/completions",
             {
                 method: "POST",
-
+                signal: controller.signal,
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
@@ -37,17 +41,21 @@ export default async function handler(req, res) {
 
                 body: JSON.stringify({
                     model: "gpt-4.1-mini",
-
                     temperature: 0.4,
 
                     messages: [
                         {
                             role: "system",
-
                             content: `
 You are a senior email marketing copy optimizer.
 
-Return ONLY valid JSON.
+STRICT RULES:
+- Output ONLY valid JSON
+- No markdown
+- No explanation
+- No code fences
+- Output must start with { and end with }
+- If unsure, still return valid JSON
 
 Schema:
 {
@@ -61,7 +69,6 @@ Schema:
 }
 `
                         },
-
                         {
                             role: "user",
                             content: prompt
@@ -71,16 +78,20 @@ Schema:
             }
         );
 
+        clearTimeout(timeout);
+
         // =========================
-        // HANDLE FAILURES
+        // HANDLE OPENAI FAILURES
         // =========================
         if (!response.ok) {
 
             const errText = await response.text();
 
+            console.error("OPENAI ERROR:", errText);
+
             return res.status(500).json({
-                currentAnalysis: "API Error",
-                issues: errText,
+                currentAnalysis: "OpenAI Error",
+                issues: errText?.slice(0, 500),
                 improvedSubjectLines: [],
                 recommendedSubject: "",
                 reason: "OpenAI request failed",
@@ -94,13 +105,50 @@ Schema:
         // =========================
         const data = await response.json();
 
-        let content =
-            data?.choices?.[0]?.message?.content || "";
+        let content = data?.choices?.[0]?.message?.content || "";
 
+        // =========================
+        // EMPTY RESPONSE GUARD
+        // =========================
+        if (!content || typeof content !== "string") {
+            return res.status(500).json({
+                currentAnalysis: "Empty Response",
+                issues: "No content returned from model",
+                improvedSubjectLines: [],
+                recommendedSubject: "",
+                reason: "OpenAI returned empty output",
+                expectedImpact: "Low",
+                scoreBoostEstimate: 0
+            });
+        }
+
+        // =========================
+        // CLEAN RESPONSE
+        // =========================
         content = content
             .replace(/```json/gi, "")
             .replace(/```/g, "")
             .trim();
+
+        // =========================
+        // SAFE JSON EXTRACTION (IMPORTANT)
+        // =========================
+        const firstBrace = content.indexOf("{");
+        const lastBrace = content.lastIndexOf("}");
+
+        if (firstBrace === -1 || lastBrace === -1) {
+            return res.status(500).json({
+                currentAnalysis: "Invalid Output",
+                issues: "No JSON object found in model response",
+                improvedSubjectLines: [],
+                recommendedSubject: "",
+                reason: "Model did not return valid JSON structure",
+                expectedImpact: "Low",
+                scoreBoostEstimate: 0
+            });
+        }
+
+        const cleanJson = content.substring(firstBrace, lastBrace + 1);
 
         // =========================
         // SAFE PARSE
@@ -108,14 +156,12 @@ Schema:
         let parsed;
 
         try {
-
-            parsed = JSON.parse(content);
-
+            parsed = JSON.parse(cleanJson);
         } catch (e) {
 
             parsed = {
-                currentAnalysis: "Parse error",
-                issues: "Invalid JSON output",
+                currentAnalysis: "Parse Error",
+                issues: "Invalid JSON returned by model",
                 improvedSubjectLines: [],
                 recommendedSubject: "",
                 reason: content,
@@ -125,18 +171,20 @@ Schema:
         }
 
         // =========================
-        // SUCCESS
+        // SUCCESS RESPONSE
         // =========================
         return res.status(200).json(parsed);
 
     } catch (err) {
+
+        console.error("FATAL ERROR:", err);
 
         return res.status(500).json({
             currentAnalysis: "Server Error",
             issues: err.message,
             improvedSubjectLines: [],
             recommendedSubject: "",
-            reason: "",
+            reason: "Unhandled exception",
             expectedImpact: "Low",
             scoreBoostEstimate: 0
         });
