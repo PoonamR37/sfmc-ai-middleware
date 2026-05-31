@@ -1,76 +1,71 @@
 export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "POST only" });
+  }
 
-    // STEP 1: GET DATA FROM SFMC
-    const record = req.body;
+  const {
+    JobID,
+    EmailName,
+    OpenRate,
+    ClickRate,
+    TotalSent
+  } = req.body;
 
-    if (!record) {
-        return res.status(400).json({
-            error: "No record received"
-        });
-    }
+  if (!JobID) {
+    return res.status(400).json({ error: "Missing JobID" });
+  }
 
-    try {
+  const prompt = `
+Analyze this email campaign:
 
-        // STEP 2: CALL OPENAI
-        const response = await fetch(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-                },
-                body: JSON.stringify({
-                    model: "gpt-4.1-mini",
-                    temperature: 0.2,
-                    messages: [
-                        {
-                            role: "system",
-                            content: "Return ONLY JSON with keys: summary, issue, recommendation, performance, analysis, riskLevel, score"
-                        },
-                        {
-                            role: "user",
-                            content: JSON.stringify(record)
-                        }
-                    ]
-                })
-            }
-        );
+Email: ${EmailName}
+OpenRate: ${OpenRate}
+ClickRate: ${ClickRate}
+TotalSent: ${TotalSent}
 
-        const data = await response.json();
+Return JSON only:
+{
+  "summary": "",
+  "issue": "",
+  "recommendation": "",
+  "performance": "",
+  "score": number,
+  "riskLevel": ""
+}
+`;
 
-        // STEP 3: EXTRACT AI RESPONSE
-        const aiText = data?.choices?.[0]?.message?.content || "{}";
+  const openaiResp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: "gpt-4.1-mini",
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: "Return ONLY valid JSON." },
+        { role: "user", content: prompt }
+      ]
+    })
+  });
 
-        let ai;
+  const data = await openaiResp.json();
+  let raw = data.choices?.[0]?.message?.content || "{}";
 
-        try {
-            ai = JSON.parse(aiText);
-        } catch (e) {
-            ai = {
-                summary: "parse_error",
-                issue: "invalid_json_from_openai",
-                recommendation: "",
-                performance: "Low",
-                analysis: aiText,
-                riskLevel: "High",
-                score: 0
-            };
-        }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    parsed = {
+      summary: raw,
+      issue: "parse_error",
+      recommendation: "",
+      performance: "",
+      score: 0,
+      riskLevel: "High"
+    };
+  }
 
-        // STEP 4: RETURN TO SFMC
-        return res.status(200).json(ai);
-
-    } catch (err) {
-
-        return res.status(500).json({
-            summary: "error",
-            issue: err.message,
-            recommendation: "",
-            performance: "Low",
-            analysis: "",
-            riskLevel: "High",
-            score: 0
-        });
-    }
+  return res.status(200).json(parsed);
 }
